@@ -6,6 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const SECRET = process.env.PUZZLE_SECRET;
+
 if (!SECRET) {
   throw new Error('PUZZLE_SECRET is not set');
 }
@@ -54,11 +55,9 @@ function verifyToken(token) {
 
     if (signature !== expectedSignature) return null;
 
-    const payload = JSON.parse(
+    return JSON.parse(
       Buffer.from(encodedPayload, 'base64url').toString('utf8')
     );
-
-    return payload;
   } catch {
     return null;
   }
@@ -241,10 +240,10 @@ export async function POST(request) {
       return json(
         {
           correct: true,
-          messageTitle: "Mechanic's Code Solved",
-          messageBody: 'Where some see luck, the mechanic sees control.',
-          rewardText: 'Your reward is now available below.',
-          claimUnlocked: true,
+          claimToken: signToken({
+            unlockedStage: 5,
+            issuedAt: Date.now(),
+          }),
         },
         origin
       );
@@ -260,7 +259,7 @@ export async function POST(request) {
 
       const payload = verifyToken(token);
 
-      if (!payload || payload.unlockedStage !== 4) {
+      if (!payload || payload.unlockedStage !== 5) {
         return json(
           {
             claimed: false,
@@ -282,9 +281,6 @@ export async function POST(request) {
         );
       }
 
-      // NOTE:
-      // This confirms the claim, but does NOT persist winner ranking.
-      // To track 1st / 2nd / 3rd permanently, add storage next.
       return json(
         {
           claimed: true,
