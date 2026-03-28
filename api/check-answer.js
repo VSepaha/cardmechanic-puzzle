@@ -5,7 +5,10 @@ const ALLOWED_ORIGINS = new Set([
   'https://www.cardmechanic.shop',
 ]);
 
-const SECRET = process.env.PUZZLE_SECRET || 'replace-this-with-a-long-random-secret';
+const SECRET = process.env.PUZZLE_SECRET;
+if (!SECRET) {
+  throw new Error('PUZZLE_SECRET is not set');
+}
 
 function buildCorsHeaders(origin) {
   const allowedOrigin = ALLOWED_ORIGINS.has(origin)
