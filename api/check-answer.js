@@ -6,10 +6,16 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const SECRET = process.env.PUZZLE_SECRET;
+const STAGE_1_ANSWERS = process.env.PUZZLE_ANSWER_STAGE_1;
+const STAGE_2_ANSWERS = process.env.PUZZLE_ANSWER_STAGE_2;
+const STAGE_3_ANSWERS = process.env.PUZZLE_ANSWER_STAGE_3;
+const FINAL_ANSWERS = process.env.PUZZLE_FINAL_ANSWER;
 
-if (!SECRET) {
-  throw new Error('PUZZLE_SECRET is not set');
-}
+if (!SECRET) throw new Error('PUZZLE_SECRET is not set');
+if (!STAGE_1_ANSWERS) throw new Error('PUZZLE_ANSWER_STAGE_1 is not set');
+if (!STAGE_2_ANSWERS) throw new Error('PUZZLE_ANSWER_STAGE_2 is not set');
+if (!STAGE_3_ANSWERS) throw new Error('PUZZLE_ANSWER_STAGE_3 is not set');
+if (!FINAL_ANSWERS) throw new Error('PUZZLE_FINAL_ANSWER is not set');
 
 function buildCorsHeaders(origin) {
   const allowedOrigin = ALLOWED_ORIGINS.has(origin)
@@ -71,9 +77,23 @@ function normalizeText(value) {
     .replace(/[.,!?]/g, '');
 }
 
+function parseAnswers(raw) {
+  return new Set(
+    String(raw)
+      .split('|')
+      .map(v => normalizeText(v))
+      .filter(Boolean)
+  );
+}
+
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
+
+const stage1Answers = parseAnswers(STAGE_1_ANSWERS);
+const stage2Answers = parseAnswers(STAGE_2_ANSWERS);
+const stage3Answers = parseAnswers(STAGE_3_ANSWERS);
+const finalAnswers = parseAnswers(FINAL_ANSWERS);
 
 export function GET(request) {
   const origin = request.headers.get('origin') || 'https://cardmechanic.shop';
@@ -103,25 +123,12 @@ export async function POST(request) {
     const body = await request.json();
     const action = body.action;
 
-    // ----------------------------
-    // 1. CHECK STAGE ANSWERS
-    // ----------------------------
     if (action === 'check-answer') {
       const answer = normalizeText(body.answer);
       const stage = Number(body.stage);
 
-      // Puzzle 1
       if (stage === 1) {
-        const validAnswers = new Set([
-          'ace of spades',
-          'aceofspades',
-          'ace spades',
-          'a of spades',
-          'as',
-          'a♠'
-        ]);
-
-        if (validAnswers.has(answer)) {
+        if (stage1Answers.has(answer)) {
           return json(
             {
               correct: true,
@@ -140,11 +147,8 @@ export async function POST(request) {
         return json({ correct: false }, origin);
       }
 
-      // Puzzle 2
       if (stage === 2) {
-        const validAnswers = new Set(['trl']);
-
-        if (validAnswers.has(answer)) {
+        if (stage2Answers.has(answer)) {
           return json(
             {
               correct: true,
@@ -163,11 +167,8 @@ export async function POST(request) {
         return json({ correct: false }, origin);
       }
 
-      // Puzzle 3
       if (stage === 3) {
-        const validAnswers = new Set(['con']);
-
-        if (validAnswers.has(answer)) {
+        if (stage3Answers.has(answer)) {
           return json(
             {
               correct: true,
@@ -189,29 +190,18 @@ export async function POST(request) {
       return json({ correct: false, error: 'Invalid stage' }, origin, 400);
     }
 
-    // ----------------------------
-    // 2. AUTHORIZE PAGE ACCESS
-    // ----------------------------
     if (action === 'authorize-stage') {
       const token = String(body.token || '');
       const stage = Number(body.stage);
 
       const payload = verifyToken(token);
 
-      if (!payload) {
-        return json({ authorized: false }, origin);
-      }
-
-      if (payload.unlockedStage !== stage) {
-        return json({ authorized: false }, origin);
-      }
+      if (!payload) return json({ authorized: false }, origin);
+      if (payload.unlockedStage !== stage) return json({ authorized: false }, origin);
 
       return json({ authorized: true }, origin);
     }
 
-    // ----------------------------
-    // 3. SUBMIT FINAL ANSWER
-    // ----------------------------
     if (action === 'submit-final-answer') {
       const token = String(body.token || '');
       const answer = normalizeText(body.answer);
@@ -229,11 +219,7 @@ export async function POST(request) {
         );
       }
 
-      const acceptedFinalAnswers = new Set([
-        'where some see luck the mechanic sees control',
-      ]);
-
-      if (!acceptedFinalAnswers.has(answer)) {
+      if (!finalAnswers.has(answer)) {
         return json({ correct: false }, origin);
       }
 
@@ -249,9 +235,6 @@ export async function POST(request) {
       );
     }
 
-    // ----------------------------
-    // 4. CLAIM REWARD
-    // ----------------------------
     if (action === 'claim-reward') {
       const token = String(body.token || '');
       const name = String(body.name || '').trim();
@@ -298,7 +281,7 @@ export async function POST(request) {
       origin,
       400
     );
-  } catch (error) {
+  } catch {
     return json(
       {
         error: 'Invalid request',
