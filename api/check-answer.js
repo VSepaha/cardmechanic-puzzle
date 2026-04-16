@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { google } from 'googleapis';
 
 const ALLOWED_ORIGINS = new Set([
   'https://cardmechanic.shop',
@@ -11,11 +12,21 @@ const STAGE_2_ANSWERS = process.env.PUZZLE_ANSWER_STAGE_2;
 const STAGE_3_ANSWERS = process.env.PUZZLE_ANSWER_STAGE_3;
 const FINAL_ANSWERS = process.env.PUZZLE_FINAL_ANSWER;
 
+const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
+const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
+
+const DISCOUNT_CODE = process.env.PUZZLE_DISCOUNT_CODE || 'MECHANIC40';
+
 if (!SECRET) throw new Error('PUZZLE_SECRET is not set');
 if (!STAGE_1_ANSWERS) throw new Error('PUZZLE_ANSWER_STAGE_1 is not set');
 if (!STAGE_2_ANSWERS) throw new Error('PUZZLE_ANSWER_STAGE_2 is not set');
 if (!STAGE_3_ANSWERS) throw new Error('PUZZLE_ANSWER_STAGE_3 is not set');
 if (!FINAL_ANSWERS) throw new Error('PUZZLE_FINAL_ANSWER is not set');
+
+if (!GOOGLE_CLIENT_EMAIL) throw new Error('GOOGLE_CLIENT_EMAIL is not set');
+if (!GOOGLE_PRIVATE_KEY) throw new Error('GOOGLE_PRIVATE_KEY is not set');
+if (!GOOGLE_SHEET_ID) throw new Error('GOOGLE_SHEET_ID is not set');
 
 function buildCorsHeaders(origin) {
   const allowedOrigin = ALLOWED_ORIGINS.has(origin)
@@ -88,6 +99,67 @@ function parseAnswers(raw) {
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+async function getSheetsClient() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: GOOGLE_CLIENT_EMAIL,
+      private_key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    },
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  const client = await auth.getClient();
+  return google.sheets({ version: 'v4', auth: client });
+}
+
+async function getExistingClaims(sheets) {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: GOOGLE_SHEET_ID,
+    range: 'A:G',
+  });
+
+  const rows = response.data.values || [];
+  if (rows.length <= 1) return [];
+
+  return rows.slice(1).map(row => ({
+    timestamp: row[0] || '',
+    name: row[1] || '',
+    email: row[2] || '',
+    placement: row[3] || '',
+    rewardType: row[4] || '',
+    tokenHash: row[5] || '',
+    claimStatus: row[6] || '',
+  }));
+}
+
+function getRewardForPlacement(placement) {
+  if (placement === 1) {
+    return {
+      rewardType: 'cash_100',
+      claimMessage:
+        'You were the first to solve the puzzle. You have won the $100 cash prize. You will be contacted shortly via email.',
+    };
+  }
+
+  if (placement === 2) {
+    return {
+      rewardType: 'four_beta_decks',
+      claimMessage:
+        'You were the second to solve the puzzle. You have won 4 CANIS LUPUS Beta Edition decks. You will be contacted shortly via email.',
+    };
+  }
+
+  return {
+    rewardType: 'discount_40',
+    discountCode: DISCOUNT_CODE,
+    claimMessage: `You solved the puzzle. Your reward is 40% off all CANIS LUPUS decks. Code: ${DISCOUNT_CODE}`,
+  };
 }
 
 const stage1Answers = parseAnswers(STAGE_1_ANSWERS);
@@ -264,11 +336,50 @@ export async function POST(request) {
         );
       }
 
+      const tokenHash = hashToken(token);
+      const sheets = await getSheetsClient();
+      const existingClaims = await getExistingClaims(sheets);
+
+      const duplicate = existingClaims.find(row => row.tokenHash === tokenHash);
+      if (duplicate) {
+        return json(
+          {
+            claimed: false,
+            error: 'This reward has already been claimed.',
+          },
+          origin,
+          409
+        );
+      }
+
+      const placement = existingClaims.length + 1;
+      const reward = getRewardForPlacement(placement);
+      const timestamp = new Date().toISOString();
+
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: GOOGLE_SHEET_ID,
+        range: 'A:G',
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [[
+            timestamp,
+            name,
+            email,
+            placement,
+            reward.rewardType,
+            tokenHash,
+            'claimed',
+          ]],
+        },
+      });
+
       return json(
         {
           claimed: true,
-          claimMessage:
-            'Your reward claim has been recorded. If you are one of the first qualifying solvers, you will be contacted with prize details.',
+          placement,
+          rewardType: reward.rewardType,
+          discountCode: reward.discountCode || null,
+          claimMessage: reward.claimMessage,
         },
         origin
       );
@@ -281,7 +392,8 @@ export async function POST(request) {
       origin,
       400
     );
-  } catch {
+  } catch (error) {
+    console.error('API error:', error);
     return json(
       {
         error: 'Invalid request',
