@@ -143,7 +143,7 @@ function getRewardForPlacement(placement) {
     return {
       rewardType: 'cash_100',
       claimMessage:
-        'You were the first to solve the puzzle. You have won the $100 cash prize. You will be contacted shortly via email.',
+        'You were the FIRST to solve the puzzle! You have won the $100 cash prize!! You will be contacted via email within 48 hours.',
     };
   }
 
@@ -151,14 +151,14 @@ function getRewardForPlacement(placement) {
     return {
       rewardType: 'four_beta_decks',
       claimMessage:
-        'You were the second to solve the puzzle. You have won 4 CANIS LUPUS Beta Edition decks. You will be contacted shortly via email.',
+        'You were the SECOND to solve the puzzle! You have won 4 CANIS LUPUS Beta Edition decks!! You will be contacted via email within 48 hours.',
     };
   }
 
   return {
     rewardType: 'discount_40',
     discountCode: DISCOUNT_CODE,
-    claimMessage: `You solved the puzzle. Your reward is 40% off all CANIS LUPUS decks. Code: ${DISCOUNT_CODE}`,
+    claimMessage: `You solved the puzzle! Your reward is 40% off all CANIS LUPUS decks. Code: ${DISCOUNT_CODE}`,
   };
 }
 
